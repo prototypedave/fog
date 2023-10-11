@@ -13,7 +13,6 @@ from pathlib import Path
 from tensorboardX import SummaryWriter
 
 from agent_dqn import DRLModel
-from agent_dqn import QNet
 from env import FogEnvDiscrete
 
 plt.style.use('ggplot')
@@ -32,7 +31,7 @@ random.seed(SEED)
 # Agent Hyperparameters
 ##############################################################################
 # Number of training episodes
-N_EPISODES = 7500
+N_EPISODES = 50
 # Number of iterations (where we keep only the replay buffer)
 NUMBER_ITERATIONS = 1
 ##############################################################################
@@ -50,10 +49,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--number-of-nodes", default=5, type=int, required=False)
-    parser.add_argument("--max-timesteps", default=100, type=int, required=False)
-    parser.add_argument("--number-episodes", default=7500, type=int, required=False)
+    parser.add_argument("--max-timesteps", default=10, type=int, required=False)
+    parser.add_argument("--number-episodes", default=50, type=int, required=False)
     parser.add_argument("--logging", default="INFO", type=str, required=False)
-    parser.add_argument("--save-dir", type=str, required=True)
+    parser.add_argument("--save-dir", default="results", type=str, required=False)
     parser.add_argument("--iteration", default=0, type=int, required=False)
 
     args = parser.parse_args()
@@ -98,9 +97,9 @@ if __name__ == "__main__":
     # ================= Get DRL functions =================
     # load drl function
     drl_load = DRLModel(input_size=obs_load, output_size=n_distance_actions)
-    drl_load.load_state_dict(
-        torch.load(Path(args.save_dir, f'saved_QNet_itr-{args.iteration + 1}_reward-load.pt')))
-    drl_load.to(device).eval()
+    # drl_load.load_state_dict(
+    #    torch.load(Path(args.save_dir, f'saved_DRL_load_itr-.pt')))
+    # drl_load.to(device).eval()
     # ===================================================
 
     total_time = 0
@@ -145,7 +144,7 @@ if __name__ == "__main__":
             ep_steps += 1
 
             # We extract reward functions from the info dict
-            for key, value in enumerate(["load", "distance", "priority"]):
+            for key, value in enumerate(["reward_load", "reward_distance", "reward_priority"]):
                 tensorboard_writer.add_scalar(
                     tag=f"Reward/{value}",
                     scalar_value=reward[key],

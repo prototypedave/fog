@@ -22,100 +22,123 @@ class FogEnvDiscrete(gym.Env):
     def __init__(self, n_nodes: int, max_steps: int):
         super(FogEnvDiscrete, self).__init__()
         self.n_nodes = n_nodes
-        #self.reward_mode = reward_mode
 
         # Define action space (each agent selects one of the nodes)
         self.action_space = spaces.Discrete(n_nodes)
 
         # Define observation space for node states (node load, node distance, task priority)
-        self.observation_space_load = spaces.Dict({
-            "node_load": spaces.Box(low=0, high=1, shape=(n_nodes,), dtype=np.float32)
-        })
-        self.observation_space_distance = spaces.Dict({
-            "node_distance": spaces.Box(low=0, high=1, shape=(n_nodes,), dtype=np.float32)
-        })
-        self.observation_space_priority = spaces.Dict({
-            "task_priority": spaces.Box(low=0, high=1, shape=(n_nodes,), dtype=np.float32)
-        })
+        self.observation_space = spaces.Box(
+            low=np.array([0.0, 0.0, 0.0]),  # Minimum values for node_load, distance, and priority
+            high=np.array([1.0, 1.0, 1.0]),  # Maximum values for node_load, distance, and priority (normalized to 1)
+            dtype=np.float32
+        )
 
         # Initialize the system with assigning different nodes
-        self.system = System(n_iot=2, n_fog=n_nodes, n_cloud=1)
+        self.system = System(n_iot=100, n_fog=n_nodes, n_cloud=1)
+        self.system.run()
 
-        # Initialize node states (random float values between 0 and 1)
-        self.node_loads: List[float] = []
-        self.node_distances: List[float] = []
-        self.task_priorities: List[float] = []
         self.task: tuple = ()
-
-        self.steps = 0
         self.max_steps = max_steps
+        self.steps = 0
 
     def reset(self):
-        # get the tasks
+        # get the list of nodes current load
+        node_loads = self.system.controller.get_current_load()
+
+        # get the first task to be processed
         task = self.system.controller.get_task()
-        print(task)
+        # save the task to the env
         self.task = task[1]
-        self.node_loads = self.system.controller.get_current_load()
 
+        # use the task index to retrieve the node sending position
         pos = self.system.layer1.devices[task[0]].position
-        self.node_distances = self.system.controller.get_distance(pos)
+        # calculate the distance of the node from each fog in the network
+        node_distances = self.system.controller.get_distance(pos, self.task)
 
-        self.task_priorities = self.system.controller.get_node_priority()
+        # return a list of priorities
+        task_priorities = self.system.controller.get_node_priority()
 
-        state1 = np.array(self.node_loads)
-        state2 = np.array(self.node_distances)
-        state3 = np.array(self.task_priorities)
+        # normalized lists
+        loads = self._normalize(node_loads)
+        distance = self._normalize(node_distances)
+        priority = self._normalize(task_priorities)
 
-        return [state1, state2, state3]
+        obs = np.concatenate([loads, distance, priority])
+        return [loads, distance, priority]
 
-    def step(self, action: Action):
+    def step(self, action):
         self.steps += 1
 
         # assign task to the node
         self.system.controller.send_task(self.task, int(action))
-
         # process all the nodes
         self.system.controller.process_task()
 
-        reward = self.reward(action)
+        # get the list of nodes current load
+        node_loads = self.system.controller.get_current_load()
 
-        self.system.run()
+        # get the first task to be processed
         task = self.system.controller.get_task()
+        # save the task to the env
         self.task = task[1]
-        self.node_loads = self.system.controller.get_current_load()
 
+        # use the task index to retrieve the node sending position
         pos = self.system.layer1.devices[task[0]].position
-        self.node_distances = self.system.controller.get_distance(pos)
+        # calculate the distance of the node from each fog in the network
+        node_distances = self.system.controller.get_distance(pos, self.task)
 
-        self.task_priorities = self.system.controller.get_node_priority()
+        # return a list of priorities
+        task_priorities = self.system.controller.get_node_priority()
 
-        state1 = np.array(self.node_loads)
-        state2 = np.array(self.node_distances)
-        state3 = np.array(self.task_priorities)
+        # normalized lists
+        loads = self._normalize(node_loads)
+        distance = self._normalize(node_distances)
+        priority = self._normalize(task_priorities)
 
+        obs = np.concatenate([loads, distance, priority])
+
+        reward, info = self.reward(obs)
+
+        state = [loads, distance, priority]
+
+        done = False
         if self.steps >= self.max_steps:
             done = True
-        else:
-            done = False
 
-        return state1, state2, state3, reward, done
+        return state, reward, done, info
 
-    def reward(self, action):
-        # ========= Load Reward =========
-        reward1 = -np.linalg.norm(np.array(self.node_loads))
+    def reward(self, state):
+        load = state[0]
+        distance = state[1]
+        priority = state[2]
 
-        # ========= Distance Reward =========
-        reward2 = -np.linalg.norm(np.array(self.node_distances))
+        load_reward = 1 - load
+        distance_reward = 1 - distance
+        priority_reward = 1 - priority
 
-        # ========= Priority =========
-        reward3 = -np.linalg.norm(np.array(self.task_priorities))
+        info = {
+            "reward_load": load_reward,
+            "reward_distance": distance_reward,
+            "reward_priority": priority_reward
+        }
 
-        reward = [reward1, reward2, reward3]
-        return reward
+        reward = load_reward + distance_reward + priority_reward
+
+        return reward, info
 
     def render(self, mode='human', close=False):
         # Render the environment to the screen
         return
+
+    def _normalize(self, values):
+        # Perform min-max normalization to [0, 1] for the given list of values
+        if all(x == values[0] for x in values):
+            return [0.0] * len(values)  # Set normalized values to 0 or any other default value
+
+        min_value = min(values)
+        max_value = max(values)
+        return [(x - min_value) / (max_value - min_value) for x in values]
+
 
 logger = logging.getLogger(__name__)
 

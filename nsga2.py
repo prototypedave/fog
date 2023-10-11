@@ -31,12 +31,12 @@ logger = logging.getLogger(__name__)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 SEED = 7
-torch.manual_seed(SEED)
-np.random.seed(SEED)
-random.seed(SEED)
+#torch.manual_seed(SEED)
+#np.random.seed(SEED)
+#random.seed(SEED)
 
 N_EPISODES = 100
-NUMBER_ITERATIONS = 1
+NUMBER_ITERATIONS = 5
 
 PLOT_ALL = False
 
@@ -55,25 +55,44 @@ class MultiObjectiveOptimizationProblem(Problem):
         self.priority_action_values = priority_action_values
 
     def _evaluate(self, x, out, *args, **kwargs):
-        f1 = -self.load_action_values[x]
-        f2 = -self.distance_action_values[x]
-        f3 = -self.priority_action_values[x]
+        if x.ndim == 2:
+            x = x[:, 0]  # Take the first column if X has multiple columns
 
-        out["F"] = [[f1, f2, f3]]
+        num_solutions = x.shape[0]  # Number of solutions to evaluate
+        objectives = np.zeros((num_solutions, self.n_obj))  # Initialize array for objectives
+
+        for i in range(num_solutions):
+            x_int = int(x[i])  # Convert each element of X to integer
+            f1 = -self.load_action_values[x_int]
+            f2 = -self.distance_action_values[x_int]
+            f3 = -self.priority_action_values[x_int]
+            objectives[i, :] = [f1, f2, f3]  # Store objectives for this solution
+
+        out["F"] = objectives
 
 
 def min_max_rescale(array: np.array):
     return (array - array.min()) / (array.max() - array.min())
 
 
+def check_pt_model(model_path, DRL):
+    # Check if the model file exists
+    if model_path.exists():
+        # If the model file exists, load the model
+        DRL.load_state_dict(torch.load(model_path))
+    else:
+        # If the model file does not exist, create a new model and save it
+        torch.save(DRL.state_dict(), model_path)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--number-of-nodes", default=5, type=int, required=False)
-    parser.add_argument("--max-timesteps", default=100, type=int, required=False)
+    parser.add_argument("--number-of-nodes", default=250, type=int, required=False)
+    parser.add_argument("--max-timesteps", default=10, type=int, required=False)
     parser.add_argument("--logging", default="INFO", type=str, required=False)
-    parser.add_argument("--save-dir", default="~/results_last", type=str, required=False)
-    parser.add_argument("--iteration", default=0, type=int, required=False)
+    parser.add_argument("--save-dir", default="results", type=str, required=False)
+    parser.add_argument("--iteration", default=100, type=int, required=False)
     parser.add_argument("--plot-all", default=0, type=int, required=False)
 
     args = parser.parse_args()
@@ -95,46 +114,32 @@ if __name__ == "__main__":
     # Environment
     env = FogEnvDiscrete(n_nodes=NUMBER_OF_NODES, max_steps=MAX_STEPS)
 
-    # CREATE NETWORK
-    # DRL 1 (load)
-    obs_size_load = env.observation_space_load["node_load"].shape[0]
-    n_load_actions = env.action_space.n
-    logger.info(f"DRL1(LOAD) observation space shape: {env.observation_space_load.shape}")
-    logger.info(f"n_actions: {n_load_actions}")
+    # Retrieve the observation sizes for each objective
+    obs_size_load = NUMBER_OF_NODES
+    obs_size_distance = NUMBER_OF_NODES
+    obs_size_priority = NUMBER_OF_NODES
+
+    actions_size = env.action_space.n
+    logger.info(f"DRL1(LOAD) observation space shape: {obs_size_load}")
+    logger.info(f"n_actions: {actions_size}")
 
     # DRL 2 (distance)
-    obs_size_distance = env.observation_space_distance.shape
-    n_distance_actions = env.action_space.n
-    logger.info(f"DRL2(DISTANCE) observation space shape: {env.observation_space_distance.shape}")
-    logger.info(f"n_actions: {n_distance_actions}")
+    logger.info(f"DRL2(DISTANCE) observation space shape: {obs_size_distance}")
+    logger.info(f"n_actions: {actions_size}")
 
     # DRL 3 (priority)
-    obs_size_priority = env.observation_space_priority.shape
-    n_priority_actions = env.action_space.n
-    logger.info(f"DRL3(PRIORITY) observation space shape: {env.observation_space_load.shape}")
-    logger.info(f"n_actions: {n_load_actions}")
+    logger.info(f"DRL3(PRIORITY) observation space shape: {obs_size_priority}")
+    logger.info(f"n_actions: {actions_size}")
 
     # DRL FUNCTIONS
     # load
-    DRL_load = DRLModel(input_size=obs_size_load, output_size=n_load_actions)
-    DRL_load.load_state_dict(
-        torch.load(Path(args.save_dir, 'load', f'saved_DRL_itr-{args.iteration + 1}_reward-load.pt'))
-    )
-    DRL_load.to(device).eval()
+    DRL_load = DRLModel(input_size=obs_size_load, output_size=actions_size)
 
     # distance
-    DRL_distance = DRLModel(input_size=obs_size_distance, output_size=n_distance_actions)
-    DRL_distance.load_state_dict(
-        torch.load(Path(args.save_dir, 'distance', f'saved_DRL_itr-{args.iteration + 1}_reward-load.pt'))
-    )
-    DRL_distance.to(device).eval()
+    DRL_distance = DRLModel(input_size=obs_size_distance, output_size=actions_size)
 
     # priority
-    DRL_priority = DRLModel(input_size=obs_size_priority, output_size=n_priority_actions)
-    DRL_distance.load_state_dict(
-        torch.load(Path(args.save_dir, 'priority', f'saved_DRL_itr-{args.iteration + 1}_reward-load.pt'))
-    )
-    DRL_priority.to(device).eval()
+    DRL_priority = DRLModel(input_size=obs_size_priority, output_size=actions_size)
 
     total_time = 0
     total_ep = 0
@@ -142,10 +147,7 @@ if __name__ == "__main__":
     for _ in tqdm(range(NUMBER_ITERATIONS), desc="Learning iterations"):
         # Algorithm
         state = env.reset()
-
         state_load = state[0]
-        state_distance = state[1]
-        state_priority = state[2]
 
         ep = 0
         episode_reward = 0
@@ -165,22 +167,19 @@ if __name__ == "__main__":
         while ep < N_EPISODES:
             # sample all best actions
             # LOAD
-            tensor_state_load = torch.FloatTensor(state_load).unsqueeze(0).to(device)
-            action_load = DRL_load.forward(tensor_state_load).detach().cpu().numpy().flatten()
-            # min-max normalize to [0,1]
-            action_values_load = min_max_rescale(array=action_load)
+            tensor_load = torch.FloatTensor(state[0]).unsqueeze(0).to(device)
+            action_load = DRL_load.forward(tensor_load).detach().cpu().numpy().flatten()
+            action_load = min_max_rescale(action_load)
 
             # DISTANCE
-            tensor_state_distance = torch.FloatTensor(state_distance).unsqueeze(0).to(device)
-            action_distance = DRL_distance.forward(tensor_state_distance).detach().cpu().numpy().flatten()
-            # min-max normalize to [0,1]
-            action_values_distance = min_max_rescale(array=action_distance)
+            tensor_distance = torch.FloatTensor(state[1]).unsqueeze(0).to(device)
+            action_distance = DRL_distance.forward(tensor_distance).detach().cpu().numpy().flatten()
+            action_distance = min_max_rescale(action_distance)
 
             # Priority
-            tensor_state_priority = torch.FloatTensor(state_priority).unsqueeze(0).to(device)
-            action_priority = DRL_priority.forward(tensor_state_priority).detach().cpu().numpy().flatten()
-            # min-max normalize to [0,1]
-            action_values_priority = min_max_rescale(array=action_priority)
+            tensor_priority = torch.FloatTensor(state[2]).unsqueeze(0).to(device)
+            action_priority = DRL_priority.forward(tensor_priority).detach().cpu().numpy().flatten()
+            tensor_priority = min_max_rescale(action_priority)
 
             # Log best action with respect to the three objectives
             if PLOT_ALL:
@@ -192,32 +191,33 @@ if __name__ == "__main__":
                     )
 
             MODRL_problem = MultiObjectiveOptimizationProblem(
-                load_action_values=action_values_load,
-                distance_action_values=action_values_distance,
-                priority_action_values=action_values_priority,
+                load_action_values=action_load,
+                distance_action_values=action_distance,
+                priority_action_values=action_priority,
                 number_of_nodes=NUMBER_OF_NODES
             )
 
             algorithm = NSGA2(
-                pop_size=20,
+                pop_size=20,  # Set your desired population size
                 sampling=IntegerRandomSampling(),
                 crossover=SBX(prob=1.0, eta=3.0, vtype=float, repair=RoundingRepair()),
-                mutation=PM(prob=1.0, eta=3.0, vtype=float, repair=RoundingRepair()),
-                eliminate_duplicates=True,
+                mutation=PM(prob=1.0, eta=3.0),
+                eliminate_duplicates=True
             )
 
             res = minimize(
-                MODRL_problem,
-                algorithm,
-                termination=('n_gen', 10),
+                problem=MODRL_problem,
+                algorithm=algorithm,
+                termination=('n_gen', 10),  # Set your desired number of generations
                 seed=SEED,
-                save_history=False
+                save_history=True,
             )
 
             logger.debug(f"Best solution found: {res.X}")
             logger.debug(f"Function value: {res.F}")
 
-            action = np.random.choice(res.X.flatten())
+            best_solution_index = np.argmax(res.F.sum(axis=1))
+            action = res.X[best_solution_index]
 
             logger.debug(f"selected action: {action}")
             if PLOT_ALL:
@@ -227,18 +227,21 @@ if __name__ == "__main__":
                     global_step=total_time,
                 )
 
-            load_state, distance_state, priority_state, reward, done = env.step(action)
-            episode_reward += reward[0]
+            next_state, reward, done, info = env.step(action)
+
+            episode_reward += reward
             total_time += 1
             ep_steps += 1
+
+            reward_list = [info["reward_load"], info["reward_distance"], info["reward_priority"]]
 
             for idx, key in enumerate(['reward_load', 'reward_distance', 'reward_priority']):
                 tensorboard_writer.add_scalar(
                     tag=f"Reward/{key}",
-                    scalar_value=reward[idx],
+                    scalar_value=reward_list[idx],
                     global_step=total_time,
                 )
-                episode_reward_dict[key] += reward[idx]
+                episode_reward_dict[key] += reward_list[idx]
 
             if ep == 0 and ep_steps in [1, 20, 60, 200, 600, 999]:
                 with open(Path(args.save_dir, "nsga2", "statistics.txt"), 'a') as f:
@@ -249,12 +252,13 @@ if __name__ == "__main__":
             env.system.log(tensorboard_writer=tensorboard_writer, global_step=total_time, plot=PLOT_ALL)
 
             logger.debug(f"next_state: [load_State, distance_state, priority_state]")
-            logger.debug(f"next_state: {load_state}, {distance_state}, {priority_state}")
+            logger.debug(f"next_state: {next_state}")
             logger.debug(f"reward: {reward}")
             logger.debug(f"done: {done}")
 
-            state = [load_state, distance_state, priority_state]
+            state = next_state
             if done:
+                env.system.reset()
                 state = env.reset()
                 # logger.info(f"We finished episode {ep} with reward {episode_reward}")
                 for key, value in episode_reward_dict.items():

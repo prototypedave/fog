@@ -1,6 +1,8 @@
 """
-
+   class: IoTDevice
+   desc: task generation nodes
 """
+import csv
 import time
 from typing import List
 
@@ -81,7 +83,7 @@ class IoTDevice:
 
         return instructions_per_second
 
-    def generate_task(self):
+    def generate_task(self) -> None:
         # get the scheduling and size generation first
         self.generate_poisson_tasks()
         self.populate_tasks_size()
@@ -92,6 +94,14 @@ class IoTDevice:
             time.sleep(self.generated_times[time_idx])
             priority, size = self.task_list[time_idx]
 
+            # calculate the transmission time of sending this data
+            c_time = size / 10 # Mbps
+
+            # write to csv
+            filepath = "results/transmission_delay.csv"
+            #self.write_to_csv(size, c_time, filepath)
+
+            # assign priorities in values 0 being low and 2 high
             if priority == "high":
                 priority = 2
             elif priority == "mid":
@@ -106,9 +116,16 @@ class IoTDevice:
             print(f"{task} generated at {time.time()}, scheduled time: {self.generated_times[time_idx]}")
             time_idx += 1
 
+    def get_device_task(self) -> tuple:
+        # custom function that generates tasks when all the tasks are processed
+        self.generate_task()
+        task: tuple = self.tasks[0]
+        return task
 
-if __name__ == "__main__":
-    iot = IoTDevice(1)
-    orch = Orchestrator()
-    iot.generate_task(orch)
-    print(iot.generated_times)
+    def write_to_csv(self, num, tim: float, file_path: str) -> None:
+        # Open the file in append mode
+        with open(file_path, 'a', newline='') as file:
+            # Create a CSV writer object
+            writer = csv.writer(file)
+            # Write the updated values to the CSV file
+            writer.writerow([num, tim])

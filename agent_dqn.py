@@ -30,15 +30,20 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 class DRLModel(nn.Module):
     def __init__(self, input_size, output_size):
         super(DRLModel, self).__init__()
-        self.fc1 = nn.Linear(input_size, 128)  # Input size is the dimensionality of your state vector
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, output_size)  # Output size is the number of possible actions
+        self.fc1 = nn.Linear(input_size, 64)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(64, 256)
+        self.fc3 = nn.Linear(256, output_size)
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        q_values = self.fc3(x)
-        return q_values
+    def forward(self, state):
+        x = self.fc1(state)
+        x = self.relu(x)
+
+        x = self.fc2(x)
+        x = self.relu(x)
+
+        output = self.fc3(x)
+        return output
 
     def select_greedyaction(self, state):
         with torch.no_grad():
@@ -97,7 +102,7 @@ START_DECREASE = 150000
 STOP_EXPLORING = 5000
 
 # Number of training episodes
-N_EPISODES = 7500
+N_EPISODES = 20
 # Number of iterations (where we keep only the replay buffer)
 NUMBER_ITERATIONS = 1
 
@@ -105,7 +110,7 @@ NUMBER_ITERATIONS = 1
 LEARNING_RATE = 0.001
 
 NUMBER_OF_NODES = 250
-MAX_TIMESTEPS = 1000
+MAX_TIMESTEPS = 10
 PLOT_ALL = False
 
 if __name__ == "__main__":

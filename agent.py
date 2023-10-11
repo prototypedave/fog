@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--number-of-nodes", default=2, type=int, required=False)
     parser.add_argument("--number-of-devices", default=2, type=int, required=False)
-    parser.add_argument("--max-timesteps", default=100, type=int, required=False)
+    parser.add_argument("--max-timesteps", default=1000, type=int, required=False)
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -69,19 +69,19 @@ if __name__ == "__main__":
     # Number of observations
     obs_space_load = env.observation_space_load
     n_observations_load = int(
-        np.prod(obs_space_load['node_load'].n)
+        np.prod(obs_space_load['node_load'].shape[0])
     )
     logger.info(f"n_observations: {n_observations_load}")
 
     obs_space_distance = env.observation_space_distance
     n_observations_distance = int(
-        np.prod(obs_space_distance['node_distance'].n)
+        np.prod(obs_space_distance['node_distance'].shape[0])
     )
     logger.info(f"n_observations: {n_observations_distance}")
 
     obs_space_priority = env.observation_space_priority
     n_observations_priority = int(
-        np.prod(obs_space_priority['task_priority'].n)
+        np.prod(obs_space_priority['task_priority'].shape[0])
     )
     logger.info(f"n_observations: {n_observations_priority}")
 
@@ -125,23 +125,24 @@ if __name__ == "__main__":
             # the next state, a reward and true if the episode is ended.
             load_state, distance_state, priority_state, reward, done = env.step(action)
 
-            load_state_index = (load_state[0]-1)*obs_space_load['node_load'].n[1] + (load_state[1]-1)
-            distance_state_index = (distance_state[0]-1)*obs_space_distance['node_distance'].n[1] + (distance_state[1]-1)
-            priority_state_index = (priority_state[0]-1)*obs_space_priority['node_load'].n[1] + (priority_state[1]-1)
+            load_state_index = (load_state[0]-1)*obs_space_load['node_load'].shape[0] + (load_state[1]-1)
+            distance_state_index = (distance_state[0]-1)*obs_space_distance['node_distance'].shape[0] + (distance_state[1]-1)
+            priority_state_index = (priority_state[0]-1)*obs_space_priority['task_priority'].shape[0] + (priority_state[1]-1)
 
             logger.debug(f"next_state: {load_state}. {distance_state}, {priority_state}")
             logger.debug(f"reward: {reward[0]}. {reward[1]}, {reward[2]}")
             logger.debug(f"done: {done}")
 
             # We update our tables using the Q-learning iteration
-            logger.debug(f"load_table before: {load_table[current_state[0], action]}")
-            load_table[current_state[0], action] = (1 - lr) * load_table[current_state[0], action] + lr * (
-                        reward[0] + gamma * max(load_table[load_state_index, :]))
-            logger.debug(f"load_table after: {load_table[current_state[0], action]}")
+            # logger.debug(f"load_table before: {load_table[load_state, action]}")
+            # load_table[current_state[0], action] = (1 - lr) * load_table[current_state[0], action] + lr * (
+            #            reward[0] + gamma * max(load_table[load_state_index, :]))
+            # logger.debug(f"load_table after: {load_table[current_state[0], action]}")
 
             total_episode_reward += reward[0]
             # If the episode is finished, we leave the for loop
             if done:
+                env.system.reset()
                 break
             current_state = [load_state, distance_state, priority_state]
 

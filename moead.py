@@ -61,25 +61,32 @@ PLOT_ALL = False
 
 class MultiObjectiveOptimizationProblem(Problem):
     def __init__(
-        self,
-        action_values_load: np.array,
-        action_values_distance: np.array,
-        action_values_priority: np.array,
-        number_of_nodes: int,
+            self,
+            load_action_values: np.array,
+            distance_action_values: np.array,
+            priority_action_values: np.array,
+            number_of_nodes: int
     ):
         super().__init__(n_var=1, n_obj=3, n_ieq_constr=0, xl=0, xu=number_of_nodes - 1)
-        self.action_values_load = action_values_load
-        self.action_values_distance = action_values_distance
-        self.action_values_priority = action_values_priority
+        self.load_action_values = load_action_values
+        self.distance_action_values = distance_action_values
+        self.priority_action_values = priority_action_values
 
     def _evaluate(self, x, out, *args, **kwargs):
-        # We add the "-" because we want to maximize the value
-        # "x" is the sampled action, thus we get its value from the qnet inference
-        f1 = -self.action_values_load[x]
-        f2 = -self.action_values_distance[x]
-        f3 = -self.action_values_priority[x]
+        if x.ndim == 2:
+            x = x[:, 0]  # Take the first column if X has multiple columns
 
-        out["F"] = [[f1, f2, f3]]
+        num_solutions = x.shape[0]  # Number of solutions to evaluate
+        objectives = np.zeros((num_solutions, self.n_obj))  # Initialize array for objectives
+
+        for i in range(num_solutions):
+            x_int = int(x[i])  # Convert each element of X to integer
+            f1 = -self.load_action_values[x_int]
+            f2 = -self.distance_action_values[x_int]
+            f3 = -self.priority_action_values[x_int]
+            objectives[i, :] = [f1, f2, f3]  # Store objectives for this solution
+
+        out["F"] = objectives
 
 
 def min_max_rescale(array: np.array):
@@ -120,17 +127,17 @@ if __name__ == "__main__":
     # ========================================================
 
     # create network and target network
-    obs_load = env.observation_space_load["node_load"].shape[0]
+    obs_load = NUMBER_OF_NODES
     n_load_actions = env.action_space.n
     logger.info(f"DRL1(LOAD) observation space shape: {obs_load}")
     logger.info(f"n_actions: {n_load_actions}")
 
-    obs_distance = env.observation_space_distance["node_distance"].shape[0]
+    obs_distance = NUMBER_OF_NODES
     n_distance_actions = env.action_space.n
     logger.info(f"DRL2(DISTANCE) observation space shape: {obs_distance}")
     logger.info(f"n_actions: {n_distance_actions}")
 
-    obs_priority = env.observation_space_priority["task_priority"].shape[0]
+    obs_priority = NUMBER_OF_NODES
     n_priority_actions = env.action_space.n
     logger.info(f"DRL3(PRIORITY) observation space shape: {obs_priority}")
     logger.info(f"n_actions: {n_load_actions}")
@@ -138,20 +145,20 @@ if __name__ == "__main__":
     # ================= Get Q functions =================
     # load q function
     q_net_load = DRLModel(input_size=obs_load, output_size=n_load_actions)
-    q_net_load.load_state_dict(
-        torch.load(Path(args.save_dir, 'load', f'saved_DRL_itr-{args.iteration + 1}_reward-load.pt')))
+    #q_net_load.load_state_dict(
+     #   torch.load(Path(args.save_dir, 'load', f'saved_DRL_itr-{args.iteration + 1}_reward-load.pt')))
     q_net_load.to(device).eval()
 
     # distance q function
     q_net_distance = DRLModel(input_size=obs_distance, output_size=n_distance_actions)
-    q_net_distance.load_state_dict(
-        torch.load(Path(args.save_dir, 'distance', f'saved_DRL_itr-{args.iteration + 1}_reward-distance.pt')))
+    #q_net_distance.load_state_dict(
+    #    torch.load(Path(args.save_dir, 'distance', f'saved_DRL_itr-{args.iteration + 1}_reward-distance.pt')))
     q_net_distance.to(device).eval()
 
     # priority q function
     q_net_priority = DRLModel(input_size=obs_priority, output_size=n_priority_actions)
-    q_net_priority.load_state_dict(
-        torch.load(Path(args.save_dir, 'priority', f'saved_DRL_itr-{args.iteration + 1}_reward-priority.pt')))
+    #q_net_priority.load_state_dict(
+     #   torch.load(Path(args.save_dir, 'priority', f'saved_DRL_itr-{args.iteration + 1}_reward-priority.pt')))
     q_net_priority.to(device).eval()
     # ===================================================
 
@@ -196,7 +203,6 @@ if __name__ == "__main__":
             action_values_distance = min_max_rescale(array=action_values_distance)
 
             tensor_state_priority = torch.FloatTensor(state[2]).unsqueeze(0).to(device)
-
             # Infer priority q network
             action_values_priority = q_net_priority.forward(tensor_state_priority).detach().cpu().numpy().flatten()
             action_values_priority = min_max_rescale(array=action_values_priority)
@@ -212,9 +218,9 @@ if __name__ == "__main__":
 
             # ================ Create Multi-objective optimization problem ================
             moo_problem = MultiObjectiveOptimizationProblem(
-                action_values_load=action_values_load,
-                action_values_distance=action_values_distance,
-                action_values_priority=action_values_priority,
+                load_action_values=action_values_load,
+                distance_action_values=action_values_distance,
+                priority_action_values=action_values_priority,
                 number_of_nodes=NUMBER_OF_NODES
             )
 
@@ -257,19 +263,21 @@ if __name__ == "__main__":
                     global_step=total_time,
                 )
 
-            load_state, distance_state, priority_state, reward, done = env.step(action)
+            next_state, reward, done, info = env.step(action)
             episode_reward += reward
             total_time += 1
             ep_steps += 1
 
             # We extract reward functions from the info dict
-            for key, value in enumerate(["load", "distance", "priority"]):
+            reward_list = [info["reward_load"], info["reward_distance"], info["reward_priority"]]
+
+            for idx, key in enumerate(['reward_load', 'reward_distance', 'reward_priority']):
                 tensorboard_writer.add_scalar(
-                    tag=f"Reward/{value}",
-                    scalar_value=reward[key],
+                    tag=f"Reward/{key}",
+                    scalar_value=reward_list[idx],
                     global_step=total_time,
                 )
-                episode_reward_dict[value] += reward[key]
+                episode_reward_dict[key] += reward_list[idx]
 
             if ep == 0 and ep_steps in [1, 20, 60, 200, 600, 999]:
                 with open(Path(args.save_dir, "moead", "statistics.txt"), 'a') as f:
@@ -279,13 +287,14 @@ if __name__ == "__main__":
             # log metrics from the system
             env.system.log(tensorboard_writer=tensorboard_writer, global_step=total_time, plot=PLOT_ALL)
 
-            logger.debug(f"next_state: [load_state], [distance_state], [priority_state]")
-            logger.debug(f"next_state: {load_state}, {distance_state}, {priority_state}")
+            logger.debug(f"next_state: [load_State, distance_state, priority_state]")
+            logger.debug(f"next_state: {next_state}")
             logger.debug(f"reward: {reward}")
             logger.debug(f"done: {done}")
 
-            state = [load_state, distance_state, priority_state]
+            state = next_state
             if done:
+                env.system.reset()
                 state = env.reset()
                 # logger.info(f"We finished episode {ep} with reward {episode_reward}")
                 for key, value in episode_reward_dict.items():

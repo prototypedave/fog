@@ -30,7 +30,7 @@ random.seed(SEED)
 # Agent Hyperparameters
 ##############################################################################
 # Number of training episodes
-N_EPISODES = 7500
+N_EPISODES = 50
 # Number of iterations (where we keep only the replay buffer)
 NUMBER_ITERATIONS = 1
 ##############################################################################
@@ -49,9 +49,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--number-of-nodes", default=5, type=int, required=False)
-    parser.add_argument("--max-timesteps", default=100, type=int, required=False)
+    parser.add_argument("--max-timesteps", default=10, type=int, required=False)
     parser.add_argument("--logging", default="INFO", type=str, required=False)
-    parser.add_argument("--save-dir", type=str, required=True)
+    parser.add_argument("--save-dir", default="results", type=str, required=False)
     parser.add_argument("--plot-all", default=0, type=int, required=False)
 
     args = parser.parse_args()
@@ -125,9 +125,9 @@ if __name__ == "__main__":
             action = np.random.randint(NUMBER_OF_NODES)
 
             # Send to cloud if all the nodes are fully occupied
-            cloud_threshold = 0.95
-            if np.all(state[:NUMBER_OF_NODES - 1] > cloud_threshold):
-                action = -1
+            # cloud_threshold = 0.95
+            # if np.all(state[:NUMBER_OF_NODES - 1] > cloud_threshold):
+            #    action = -1
             # ====================================================
 
             logger.debug(f"selected action: {action}")
@@ -139,12 +139,12 @@ if __name__ == "__main__":
                 )
 
             load_state, distance_state, priority_state, reward, done = env.step(action)
-            episode_reward += reward
+            episode_reward += reward[0]
             total_time += 1
             ep_steps += 1
 
             # We extract reward functions from the info dict
-            for key, value in enumerate(["load", "distance", "priority"]):
+            for key, value in enumerate(["reward_load", "reward_distance", "reward_priority"]):
                 tensorboard_writer.add_scalar(
                     tag=f"Reward/{value}",
                     scalar_value=reward[key],

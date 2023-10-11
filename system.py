@@ -50,16 +50,18 @@ class CloudLayer:
 
 class System:
     def __init__(self, n_iot: int, n_fog: int, n_cloud: int):
-        self.controller = Orchestrator()
+        self.controller = Orchestrator(num_iots=n_iot)
         self.layer1 = IoTLayer(n_iot, self.controller)
         self.layer2 = FogLayer(n_fog, self.controller)
         self.layer3 = CloudLayer(n_cloud)
 
-        self.run()
-
     def run(self):
         self.controller.running = True
         self.controller.generate_tasks(self.layer1.devices)
+
+    def reset(self):
+        for f in self.layer2.fogs:
+            f.reset()
 
     def log(self, tensorboard_writer: SummaryWriter, global_step: int, plot: bool = False):
         if plot:

@@ -30,7 +30,7 @@ random.seed(SEED)
 # Agent Hyperparameters
 ##############################################################################
 # Number of training episodes
-N_EPISODES = 7500
+N_EPISODES = 50
 # Number of iterations (where we keep only the replay buffer)
 NUMBER_ITERATIONS = 1
 ##############################################################################
@@ -139,12 +139,12 @@ if __name__ == "__main__":
                 )
 
             load_state, distance_state, priority_state, reward, done = env.step(action)
-            episode_reward += reward
+            episode_reward += reward[0]
             total_time += 1
             ep_steps += 1
 
             # We extract reward functions from the info dict
-            for key, value in enumerate(["load", "distance", "priority"]):
+            for key, value in enumerate(["reward_load", "reward_distance", "reward_priority"]):
                 tensorboard_writer.add_scalar(
                     tag=f"Reward/{value}",
                     scalar_value=reward[key],

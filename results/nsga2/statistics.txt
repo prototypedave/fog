@@ -1,0 +1,2 @@
+task_number,time(sec),load,distance,priority
+1,2.245454788208008,1.0,1.0,1.0
